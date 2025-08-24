@@ -226,3 +226,85 @@ resB.to_csv("ridge_lasso_metrics_hdd_cdd.csv", index=True)
 # Save coefficients to CSV
 coefA.to_csv("ridge_lasso_coefficients_quadratic.csv", index=True)
 coefB.to_csv("ridge_lasso_coefficients_hdd_cdd.csv", index=True)
+
+
+
+# %% ===================== MACHINE LEARNING: RF & GB =====================
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+
+def fit_ml(name, X_train_df, y_train, X_test_df, y_test):
+    """
+    Fits Random Forest and Gradient Boosting on the given feature set.
+    Drops the manual 'intercept' column (trees don't need it).
+    Returns a tuple: (metrics_df, importances_df, preds_dict)
+    """
+    # Drop explicit intercept (was for OLS only)
+    Xtr = X_train_df.drop(columns=["intercept"]).to_numpy(dtype=float)
+    Xte = X_test_df.drop(columns=["intercept"]).to_numpy(dtype=float)
+    ytr = np.asarray(y_train, dtype=float)
+    yte = np.asarray(y_test, dtype=float)
+    feature_names = X_train_df.drop(columns=["intercept"]).columns
+
+    # Random Forest: robust baseline for tabular nonlinearities
+    rf = RandomForestRegressor(
+        n_estimators=400,
+        max_depth=8,
+        min_samples_leaf=2,
+        random_state=42,
+        n_jobs=-1,
+    )
+    rf.fit(Xtr, ytr)
+    yhat_rf = rf.predict(Xte)
+
+    # Gradient Boosting: usually stronger than RF on tabular data
+    gb = GradientBoostingRegressor(
+        n_estimators=600,
+        learning_rate=0.05,
+        max_depth=3,
+        subsample=0.8,
+        random_state=42,
+    )
+    gb.fit(Xtr, ytr)
+    yhat_gb = gb.predict(Xte)
+
+    # Metrics
+    res = pd.DataFrame({
+        f"{name} (RF)": pd.Series(metrics(yte, yhat_rf)),
+        f"{name} (GB)": pd.Series(metrics(yte, yhat_gb)),
+    })
+
+    # Importances (both models expose these)
+    imps = pd.DataFrame({
+        f"{name} (RF)": pd.Series(rf.feature_importances_, index=feature_names),
+        f"{name} (GB)": pd.Series(gb.feature_importances_, index=feature_names),
+    })
+
+    # Plot: Actual vs Pred
+    plt.figure(figsize=(10, 4))
+    plt.plot(yte, label="Actual")
+    plt.plot(yhat_rf, label="Random Forest")
+    plt.plot(yhat_gb, label="Gradient Boosting")
+    plt.title(f"{name} — last {len(yte)} days")
+    plt.xlabel("Day"); plt.ylabel("MW"); plt.legend(); plt.tight_layout(); plt.show()
+
+    return res, imps, {"rf": yhat_rf, "gb": yhat_gb}
+
+# %% -------- Fit & evaluate (ML) : Quadratic T --------
+ml_res_A, ml_imp_A, ml_pred_A = fit_ml("Quadratic_T", XA, yA, XA_test, yA_test)
+print("\n===== Test Metrics (ML) — Quadratic T =====")
+print(ml_res_A.round(3))
+
+# %% -------- Fit & evaluate (ML) : HDD/CDD --------
+ml_res_B, ml_imp_B, ml_pred_B = fit_ml("HDD_CDD", XB, yB, XB_test, yB_test)
+print("\n===== Test Metrics (ML) — HDD/CDD =====")
+print(ml_res_B.round(3))
+
+# %% -------- Save ML results to CSV --------
+ml_metrics_all = pd.concat([ml_res_A, ml_res_B], axis=1)
+ml_importances_all = pd.concat([ml_imp_A, ml_imp_B], axis=1)
+
+ml_metrics_all.to_csv("ml_metrics.csv", index=True)
+ml_importances_all.to_csv("ml_feature_importances.csv", index=True)
+
+print("\nSaved ML metrics to: ml_metrics.csv")
+print("Saved ML feature importances to: ml_feature_importances.csv")
